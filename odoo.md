@@ -151,6 +151,17 @@ Class Employee(models.Model):
 ```
 
 
+### Interaction entre les règles
+- Les règles globales (non spécifiques à un groupe) sont restrictives et ne peuvent pas être contournées.
+- Les règles propres à un groupe permettent d'accorder des autorisations supplémentaires, mais elles sont limitées par celles définies au niveau global.
+- Les règles du premier groupe sont plus restrictives que les règles globales, mais n'importe quel groupe de règles supplémentaire ajoutera plus d'autorisations.
+- **Algorithme détaillé:**
+    1. Les règles globales sont évaluées avec un ET logique entre elles, et avec le résultat des étapes suivantes
+    2. Règles spécifiques au groupe combinées ensemble avec un opérateur logique OU
+    3. Lorsqu'un utilisateur appartient à plusieurs groupes, les résultats de l'étape 2 sont combinés avec un opérateur OU
+    4. Exemple : GLOBAL_RULE_1 AND GLOBAL_RULE_2 AND ( (GROUP_A_RULE_1 OR GROUP_A_RULE_2) OR (GROUP_B_RULE_1 OR GROUP_B_RULE_2) )
+
+
 - Note Importantes:
     - Si ACL  n'est pas définie pour un modèle, le modèle n'est accessible que par l'utilisateur admin.
     - Il est préférable d'avoir toujours un accès séparé pour la lecture et un autre accès pour l'écriture.
@@ -161,6 +172,7 @@ Class Employee(models.Model):
         my_object.sudo().write({'field1: 'value'}).
     ```
     - Pour les champs calculés, on utilise les attributs **compute_sudo=True**, **related_sudo=True**.
+
 
 
 ## Tests unitaires
@@ -353,11 +365,11 @@ gitaggregate -c gitaggregate.yaml -d src/{repo_name} -p
 --> Copyright year: 2018
 ```
 
-- Ajouter un nouveau model: purchase.request.line.
-- mettre à jour les dépendances du module.
+- Ajouter un nouveau modèle: purchase.request.line.
+- mettre à jour les dépendances du modèle.
 
 
-- Faire un premier test en installant le module dans une istance:
+- Faire un premier teste en installant le module dans une nouvelle instance:
 
 ```Shell
 src/odoo/odoo-bin --db_host=localhost -r odoo -w qazedcsdispo --db-filter="ges-" -d ges-test_1 -i purchase_request
@@ -368,4 +380,280 @@ src/odoo/odoo-bin --db_host=localhost -r odoo -w qazedcsdispo --db-filter="ges-"
 ...
 2018-03-11 10:22:33,053 8629 WARNING ges-test_1 odoo.modules.loading: The model purchase.request has no access rules, consider adding one. E.g. access_purchase_request,access_purchase_request,model_purchase_request,,1,0,0,0
 2018-03-11 10:22:33,053 8629 WARNING ges-test_1 odoo.modules.loading: The model purchase.request.line has no access rules, consider adding one. E.g. access_purchase_request_line,access_purchase_request_line,model_purchase_request_line,,1,0,0,0
+```
+
+- Ajouter des views pour le modèle: purchase.request (form, tree, action, menus).
+
+```XML
+    ...
+    <field name="field_name"
+           attrs="{'readonly': [('field_name_2', '=|!=|&lt;|&gt;', value)],
+                   'invisible': ..., 'required': ...}"/>
+    ...
+    <field name="product_id" domain="[('seller_ids.name', '=', parent.partner_id)]"/>
+    ...
+    <field name="product_uom" options="{'no_open':True,'no_create':True}" string="Unit of Measure" groups="product.group_uom"/>
+    ...
+    <!-- Need an OCA module: web_readonly_bypass -->
+    <field name="supplier_id" options="{'readonly_by_pass': True}"/>
+```
+
+
+- Ajouter des testes unitaires:
+
+```Shell
+~/.virtualenvs/acsoo/bin/mrbob bobtemplates.odoo:test
+
+--> Odoo version (8|9|10) [10]:
+
+--> Test file name (with underscores): test_purchase_request
+
+--> Copyright holder name: SARL Genisoft
+
+--> Copyright year: 2018
+
+Generated file structure at /Users/zakaria/odoo_genisoft/project/odoo_genisoft/odoo/addons/purchase_request
+```
+
+- La commande pour le lancer les testes unitaires et la suivante: 
+
+```Shell
+./odoo-bin --db_host=localhost -r odoo -w qazedcsdispo -d {db_name} -i {module_name} --test-enable --stop-after-ini
+
+2018-03-18 08:21:23,891 26591 INFO ges-test_1 odoo.modules.module: odoo.addons.purchase_request.tests.test_purchase_request running tests.
+2018-03-18 08:21:23,891 26591 INFO ges-test_1 odoo.addons.purchase_request.tests.test_purchase_request: test_1 (odoo.addons.purchase_request.tests.test_purchase_request.TestPurchaseRequest)
+2018-03-18 08:21:23,986 26591 INFO ges-test_1 odoo.addons.purchase_request.tests.test_purchase_request: Ran 1 test in 0.095s
+2018-03-18 08:21:23,987 26591 INFO ges-test_1 odoo.addons.purchase_request.tests.test_purchase_request: OK
+2018-03-18 08:21:23,999 26591 INFO ges-test_1 odoo.modules.loading: 35 modules loaded in 1.17s, 62 queries
+```
+
+
+- Ajouter du code métier pour nos deux modèles: purchase.request et purchase.request.line
+- les méthodes **onchange** et **compute** doivent être protégés:
+```Python
+...
+    @api.onchange('my_field')
+    def _onchange_my_field(self):
+        ....
+
+    @api.depends('some_fields')
+    def _compute_my_field(self):
+        ...
+```
+
+
+- Les méthodes utilisées par les bouttons dans l'interface doivent être visible par l'API:
+
+```Python
+...
+    @api.multi
+    def button_draft(self):
+        ...
+...
+```
+
+- Par conséquent: elles doivent être sécurisées d'avantage, la méthodes est la suivante:
+
+```
+...
+    button_draft_allowed = fields.Boolean(
+        compute='_compute_button_draft_allowed',
+        store=True,
+        readonly=True,
+    )
+    ...
+    @api.multi
+    @api.depends('state')
+    def _compute_button_draft_allowed(self):
+        has_group = self.env.user.has_group(
+            'my_module.my_group')
+        for rec in self:
+            rec.button_draft_allowed = rec.state == 'cancel' and has_group
+
+    @api.multi
+    def _check_button_draft_allowed(self):
+        if self.filtered(lambda r: not r.button_draft_allowed):
+            raise AccessError("You don't have right")
+
+    @api.multi
+    def button_draft(self):
+        self._check_button_draft_allowed()
+        self.write({'state': 'draft'})
+```
+
+```XML
+...
+        <button name="button_draft"
+                string="Reset"
+                type="object"
+                attrs="{'invisible': [('button_draft_allowed', '=', False)]}"/>
+        ...
+        <field name="button_draft_allowed" invisible="1"/>
+...
+```
+
+- A partir de la version 10.0, Odoo a décidé d'abandonner son moteur de workflow et d'utiliser uniquement des boutons associés aux états.
+- Il y a un module OCA qui essaie de remplacer le moteur, il s'appelle statechart: https://github.com/acsone/scobidoo
+
+
+### La traduction dans Odoo:
+
+- Chaque module fournit ses propres traductions dans un  répertoire i18n, en ayant des fichiers nommés **LANG.po**.
+- **LANG** est le code de paramètres régionaux pour la langue: **fr.po** ou **fr_BE.po**.
+```SHELL
+|- my_module/
+   |- i18n/ 
+      | - idea.pot # Translation Template (exported from Odoo)
+      | - fr.po # French translation
+      | - pt_BR.po # Brazilian Portuguese translation
+      | (...)
+```
+- Syntaxe du fichier:
+```PO
+#. module: purchase_request
+#: model:ir.actions.act_window,name:purchase_request.purchase_request_act_window
+#: model:ir.model,name:purchase_request.model_purchase_request
+#: model:ir.model.fields,field_description:purchase_request.field_purchase_request_line_request_id
+#: model:ir.module.category,name:purchase_request.module_category_purchase_request
+#: model:ir.ui.menu,name:purchase_request.purchase_request_menu
+#: model:ir.ui.view,arch_db:purchase_request.purchase_request_search_view
+#: model:ir.ui.view,arch_db:purchase_request.purchase_request_tree_view
+msgid "Purchase Request"
+msgstr "Purchase Request"
+```
+- Pour mettre à jour les traduction, il suffit de mettre à jour le module en utilisant le flag: **--i18n-overwrite**
+```Shell
+odoo-bin --db_host=localhost -r odoo -w qazedcsdispo --db-filter="ges-" -d ges-test_4 -u purchase_request --i18n-overwrite
+```
+
+
+- La meilleure façon pour créer les fichiers PO, est de le faire via l'interface utilisateur:
+    - **Settings ‣ Translations ‣ Import / Export ‣ Export Translations**
+
+![Inheritance](images/export_po.png)
+
+
+- Odoo automatiquement export les contenus traduisibles suivants:
+    - Au niveau des views, les tags suivant sont automatiquements exportés: **string**, **help**, **sum**, **confirm**, **placeholder**.
+    - Au niveau modéle: 
+        - Les attributs des champs: **string**, **help**.
+        - Pour les champs de type sélection: **selection**.
+        - Le contenu d'un champ peut être traduisible avec l'attribut: **translate=True**.
+        - Les messages d'erreur des contraintes: **_sql_constraints**
+- Lorsqu'il s'agit de situations plus "impératives" en code Python ou en code Javascript, Odoo ne peut pas exporter automatiquement les termes traduisibles, ils doivent donc être marqués explicitement pour l'exportation. Ceci est fait en enveloppant une chaîne littérale dans un appel de fonction.
+```Python
+from odoo import api, fields, models, _
+class PurchaseRequest(models.Model):
+    ...
+    @api.multi
+    def to_approve_allowed_check(self):
+        for rec in self:
+            if not rec.to_approve_allowed:
+                raise UserError(
+                    _("You can't request an approval for a purchase request "
+                      "which is empty. (%s)") % rec.name)
+    ...
+```
+```PO
+#. module: purchase_request
+#: code:addons/purchase_request/models/purchase_request.py:183
+#, python-format
+msgid "You can't request an approval for a purchase request which is empty. (%s)"
+msgstr "You can't request an approval for a purchase request which is empty. (%s)"
+```
+
+
+##  Notifications et messagerie dans Odoo:
+- Odoo propose un mécanisme de communication (Chatter) lié à chaque modèle. Cette communication est établie par le biais d'un système de notification et de messagerie.
+- pour intégration des fonctions de messagerie à un modèle:
+```Python
+class PurchaseRequest(models.Model):
+    _name = 'purchase.request'
+    _inherit = ['mail.thread']
+    _description = 'Purchase Request'
+```
+```XML
+<form>
+    <sheet>
+    ...
+    </sheet>
+    <div class="oe_chatter">
+        <field name="message_follower_ids" widget="mail_followers"/>
+        <field name="message_ids" widget="mail_thread"/>
+    </div>
+</form>
+```
+
+
+- Par défaut:
+    - Lors de la publication d'un message ou d'une note, tous les abonnés du document (enregistrement) recevront une notification.
+    - Tout utilisateur ayant un accès en écriture au document peut faire un post dans le chatter.
+    - Tout utilisateur qui crée ou met à jour le document est automatiquement ajouté en tant que **follower**  à ce document.
+- **mail.thread** offre des fonctions et des paramètres qui aident à changer le comportement par défaut:
+- Pour pouvoir poster un message avec un accès en lecture seulement:
+```Python
+class PurchaseRequest(models.Model):
+    _name = 'purchase.request'
+    _inherit = ['mail.thread']
+    _description = 'Purchase Request'
+    _mail_post_access = 'read'
+```
+- Pour désactiver l'abonnement automatique au document lors de la création ou de la mise à jour d'un document:
+    - **mail_create_nosubscribe**: A la création ou à l'appelle de la méthode `message_post`, n'ajouter pas automatiquement l'utilisateur courant au followers.
+    - **mail_notrack**: L'utilisateur courant n'est pas automatiquement ajouter au followers du document crée ou modifié.
+    - **tracking_disable**: Désactiver toute fonctionalité de notification.
+```Python
+self.env['my.module'].with_context(mail_create_nosubscribe=True, mail_notrack=True, tracking_disable=True).create(vals)
+```
+
+
+- **mail.thread** permet aussi de faire le logging des changements effectués sur un document: Ceci est fait en ajoutant l'attribut **track_visibility** à un champ:
+    - **onchange**: Affiché le changement de ce champ que si ce champ lui même a changé de valeur.
+    - **always**: Devrait toujours être affichée dans le chatter même si ce champ particulier n'a pas changé.
+```python
+class BusinessTrip(models.Model):
+    _name = 'business.trip'
+    _inherit = ['mail.thread']
+    _description = 'Business Trip'
+
+    name = fields.Char(track_visibility='always')
+    partner_id = fields.Many2one('res.partner', 'Responsible',
+                                 track_visibility='onchange')
+    guest_ids = fields.Many2many('res.partner', 'Participants')
+```
+
+
+- **Subtypes**: agissent comme un système de classification pour les notifications, permettant aux abonnés d'un document de personnaliser les notifications qu'ils souhaitent recevoir.
+- Les Subtypes sont créés en tant que données dans votre module:
+```XML
+<record id="mt_state_change" model="mail.message.subtype">
+    <field name="name">Trip confirmed</field>
+    <field name="res_model">business.trip</field>
+    <field name="default" eval="True"/>
+    <field name="description">Business Trip confirmed!</field>
+</record>
+```
+- Ensuite, nous devons surcharger la fonction **track_subtype ()**. Cette fonction est appelée par le système de suivi pour savoir quel sous-type doit être utilisé en fonction de la modification en cours.
+```Python
+class BusinessTrip(models.Model):
+    _name = 'business.trip'
+    _inherit = ['mail.thread']
+    _description = 'Business Trip'
+
+    name = fields.Char(track_visibility='onchange')
+    partner_id = fields.Many2one('res.partner', 'Responsible',
+                                 track_visibility='onchange')
+    guest_ids = fields.Many2many('res.partner', 'Participants')
+    state = fields.Selection([('draft', 'New'), ('confirmed', 'Confirmed')],
+                             track_visibility='onchange')
+
+    def _track_subtype(self, init_values):
+        # init_values contains the modified fields' values before the changes
+        #
+        # the applied values can be accessed on the record as they are already
+        # in cache
+        self.ensure_one()
+        if 'state' in init_values and self.state == 'confirmed':
+            return 'my_module.mt_state_change'  # Full external id
+        return super(BusinessTrip, self)._track_subtype(init_values)
 ```
