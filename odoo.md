@@ -1,773 +1,336 @@
-## Odoo en profondeur 2
+## Odoo en profondeur (Suite)
 
 
+## Rapport (Etat de sortie)
 
-## L'Héritage dans Odoo
-
-- L'héritage est un concept largement utilisé dans Odoo, il donne la flexibilité à l'ensemble du framework:
-
-    - Héritage au niveau des modules: exprimé à travers les dépendances entre les modules.
-
-    - Héritage au niveau des modèles: Traditional inheritance, Delegation inheritance.
-    
-    - Héritage au niveau des vues: Permet d'ajouter plus d'éléments à une vue existante.
+- Les etat de sortie dans Odoo sont basés sur le moteur de template **Qweb**.
+- Chaque état de sortie est lié à une **action**. Lorsque l'action est appelée, le rapport est imprimé.
+- Chaque état de sortie a un **format papier**. Le format papier est spécifié dans l'action.
 
 
-### Héritage au niveau des modèles
-- Héritage traditionnel: a le même mécanisme que l'héritage de programmation orienté objet:
-    - ajouter des champs à un modèle ou remplacer la définition des champs sur un modèle,
-    - ajouter des méthodes à un modèle ou remplacer les méthodes existantes sur un modèle.
-```python
-Class Model1(models.Model):
-    _name = 'model.1'
+### 1- Language QWEB.
 
-    name = fields.Char(string='Nom 1', required=True,)
-    ...
-    @api.multi
-    def action_do_something(self):
-        for rec in self:
-            rec.name = 'something'
-    ...
-Class Model2(models.Model):
-    _inherit = 'model.1' # _inherit = ['model.1', 'model.3', ...]
-    # _name = 'model.2' ==> New model created
+- C'est un moteur de template XML utilisé principalement pour générer des fragments et des pages HTML.
+- QWEB c'est un langage comme les autres: if, for, variable, 
 
-    name = fields.Char(readonly=True, default='something else',)
-
-    @api.multi
-    def action_do_something(self):
-        rec_with_no_names = self.filter(lambda: not rec.name)
-        if rec_with_no_name:
-            return super(Model2, rec_with_no_names).action_do_something()
-```
-
-
-- **Héritage par délégation**: permet de lier chaque enregistrement d'un modèle à un enregistrement dans un modèle parent et fournit un accès transparent aux champs de l'enregistrement parent. 
-
-```Python
-Class ResourceResource(models.Model):
-    _name = 'resource.resource'
-    _description = 'Resource Detail'
-
-    name = fields.Char(required=True)
-    code = fields.Char(copy=False)
-    active = fields.Boolean(track_visibility='onchange', default=True, ...)
-    ...
-Class Employee(models.Model):
-    _name = "hr.employee"
-    _description = "Employee"
-    _order = 'name_related'
-    _inherits = {'resource.resource': "resource_id"}
-
-    resource_id = fields.Many2one('resource.resource', string='Resource',
-        ondelete='cascade', required=True, auto_join=True)
-```
-
-
-![Inheritance](images/inheritance_methods.png)
-
-
-### Héritage au niveau des vues
 ```XML
-    <record id="product_template_form_view" model="ir.ui.view">
-        <field name="name">product.template.form.inherit</field>
-        <field name="model">product.template</field>
-        <field name="priority">5</field>
-        <field name="inherit_id" ref="product.product_template_form_view"/>
-        <field name="arch" type="xml">
-            <page name="sales" position="after">
-                ...
-            </page>
-        </field>
-    </record>
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+...
+<t t-name="TreeView">
+    <select t-if="toolbar" style="width: 30%"/>
+    <table class="o_treeview_table">
+        <thead>
+            <tr>
+                <th t-foreach="fields_view" t-as="field"
+                    t-if="!field.attrs.modifiers.tree_invisible"
+                    class="treeview-header">
+                    <t t-esc="field_value.attrs.string || fields[field.attrs.name].string" />
+                </th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+</t>
+...
+</template>
+```
 
-    <xpath expr="//field[@name='description']" position="after">
-        <field name="idea_ids" />
+
+- **Boucle For**:
+
+```XML
+...
+<tbody>
+    <tr t-foreach="o.line_ids" t-as="line_ids">
+        <td>
+            <span t-field="line_ids.name"/>
+        </td>
+        ...
+    </tr>
+    ...
+</tbody>
+```
+
+- **Condition if:**
+
+```XML
+<t t-if="o.line_ids">
+    <h3>Products</h3>
+    <table class="table table-condensed">
+        ...
+    </table>
+    ...
+</t>
+```
+
+```XML
+<div>
+    <p t-if="user.birthday == today()">Happy bithday!</p>
+    <p t-elif="user.login == 'root'">Welcome master!</p>
+    <p t-else="">Welcome!</p>
+</div>
+```
+
+- **Affichage de données:**
+
+```XML
+...
+<tbody>
+    <tr t-foreach="o.order_line" t-as="line">
+        <td>
+            <span t-field="line.name"/>
+        </td>
+        <td>
+            <span t-esc="', '.join(map(lambda x: x.name, line.taxes_id))"/>
+        </td>
+        ...
+    </tr>
+</tbody>
+...
+```
+
+
+- **Définir des variables:**
+
+```XML
+...
+<t t-set="foo" t-value="2 + 1"/>
+<t t-esc="foo"/>
+```
+
+```XML
+...
+<t t-set="o" t-value="o.with_context({'lang':o.partner_id.lang})"/>
+<div class="page">
+...
+```
+
+- **Appel d'autres templates**
+
+```XML
+<!-- other template -->
+<div>
+    This template was called with content:
+    <t t-raw="0"/>
+</div>
+<!-- inside my template -->
+<t t-call="other-template">
+    <em>content</em>
+</t>
+<!-- result -->
+<div>
+    This template was called with content:
+    <em>content</em>
+</div>
+```
+
+- **les attributs**
+
+```XML
+<t t-foreach="[1, 2, 3]" t-as="item">
+    <li t-attf-class="row {{ item_parity }}"><t t-esc="item"/></li>
+</t>
+<!-- result -->
+<li class="row even">1</li>
+<li class="row odd">2</li>
+<li class="row even">3</li>
+```
+
+- Pour plus de detail: https://www.odoo.com/documentation/10.0/reference/qweb.html
+
+
+### 2-Structure d'un état de sortie
+
+```XML
+<template id="report_invoice">
+    <t t-call="report.html_container">
+        <t t-foreach="docs" t-as="o">
+            <t t-call="report.external_layout">
+                <div class="page">
+                    <h2>Report title</h2>
+                    <p>This object's name is <span t-field="o.name"/></p>
+                </div>
+            </t>
+        </t>
+    </t>
+</template>
+```
+
+- Certaines variables spécifiques sont accessibles dans les états de sortie, principalement:
+    1. **docs**: Enregistrements à imprimer.
+    2. **time**: une référence la bibliothèque standard Python
+    3. **user**: l'enregistrement `res.user` utilisateur courrant (i.e celui qui est entrain d'imprimé l'état de sortie).
+
+
+- **Traduction d'un état de sortie**:
+
+```XML
+<!-- Main template -->
+<template id="report_saleorder">
+    <t t-call="report.html_container">
+        <t t-foreach="docs" t-as="doc">
+            <t t-call="sale.report_saleorder_document" t-lang="doc.partner_id.lang"/>
+        </t>
+    </t>
+</template>
+```
+
+```XML
+<!-- Translatable template -->
+<template id="report_saleorder_document">
+    <!-- Re-browse of the record with the partner lang -->
+    <t t-set="doc" t-value="doc.with_context({'lang':doc.partner_id.lang})" />
+    <t t-call="report.external_layout">
+        <div class="page">
+            <div class="oe_structure"/>
+            <div class="row">
+                <div class="col-xs-6">
+                    <strong t-if="doc.partner_shipping_id == doc.partner_invoice_id">Invoice and shipping address:</strong>
+                    <strong t-if="doc.partner_shipping_id != doc.partner_invoice_id">Invoice address:</strong>
+                    <div t-field="doc.partner_invoice_id" t-options="{&quot;no_marker&quot;: True}"/>
+                <...>
+            <div class="oe_structure"/>
+        </div>
+    </t>
+</template>
+```
+
+
+### astuces utiles
+- **Impression de barcodes:**
+
+```XML
+<template id="report_location_barcode">
+    <t t-call="web.html_container">
+        <div t-foreach="[docs[x:x+4] for x in xrange(0, len(docs), 4)]" t-as="page_docs" class="page article page_stock_location_barcodes">
+            <t t-foreach="page_docs" t-as="o">
+                <t t-if="o.barcode"><t t-set="content" t-value="o.barcode"/></t>
+                <t t-if="not o.barcode"><t t-set="content" t-value="o.name"/></t>
+                <img class="barcode" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s&amp;humanreadable=1' % ('Code128', content, 600, 100)"/>
+            </t>
+        </div>
+    </t>
+</template>
+```
+
+- **Widgets**:
+
+```XML
+<!-- Widget pour les addresses -->
+<div t-if="o.dest_address_id">
+    <div t-field="o.dest_address_id"
+        t-options='{"widget": "contact", "fields": ["address", "name", "phone", "fax"], "no_marker": True, "phone_icons": True}'/>
+<div>
+```
+
+```XML
+<!-- Widget pour la devise -->
+<td class="text-right">
+    <span t-field="line.price_subtotal"
+        t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+</td>
+```
+
+```XML
+<!-- Affichage des images -->
+<div class="col-xs-3">
+    <img t-if="company.logo" t-att-src="'data:image/png;base64,%s' % company.logo" style="max-height: 45px;"/>
+</div>
+```
+
+
+- **Ajout des CSS:** Trois façons différentes de le faire
+
+1- Peut être mis directement dans la template
+
+```XML
+<span style="padding-top: 10px;" t-field="o.name"/>
+```
+
+2- En héritant la template principale des état de sortie:
+
+```XML
+<template id="report_saleorder_style" inherit_id="report.style">
+    <xpath expr=".">
+        <t>
+          .example-css-class {
+            background-color: red;
+          }
+        </t>
     </xpath>
-
-    <field name="description" position="after">
-        <field name="idea_ids" />
-    </field>
+</template>
 ```
 
-
-# La Sécurité dans Odoo
-
-- Odoo fournit deux principaux mécanismes gérer ou restreindre l'accès aux données:
-    - Access Control (ACL).
-    - Record Rules (RRL).
-- Les deux mécanismes sont appliqués sur les groupes d'utilisateurs.
-- un utilisateur appartient à un nombre quelconque de groupes, et les mécanismes de sécurité sont associés à des groupes.
-- On définit les pérmissions relative aux CRUD: create, read, update(write), delete(unlink).
-- les ACL et les RRL sont des données définies en utilisant du XML.
-
-
-- **Groupes**:
-```XML
-.../my_addons/my_module/security/{module_name}_groups.xml
-    <record model="ir.module.category" id="my_security_category">
-        <field name="name">My Groupes</field>
-        <field name="sequence">21</field>
-    </record>
-
-    <record id="my_group_1" model="res.groups">
-        <field name="name">My group 1</field>
-        <field name="category_id" ref="my_module.my_security_category"/>
-        <field name="users" eval="[(4, ref('base.user_root'))]"/>
-    </record>
-```
-
-
-- **Acess Control**: 
-```XML
-.../my_addons/my_module/security/{my_model}_acl.xml
-
-    <record model="ir.model.access" id="{my_model}_{my_group}_acl">
-        <field name="name">{my.module}.{my.group}.access</field>
-        <field name="model_id" ref="{my_module}.model_{my_model_name}"/>
-        <field name="group_id" ref="{my_module}.{my_security_category}"/>
-        <field name="perm_read" eval="1"/>
-        <field name="perm_create" eval="0"/>
-        <field name="perm_write" eval="0"/>
-        <field name="perm_unlink" eval="0"/>
-    </record>
-    ...
-```
-
-
--**Record rules**:
-```XML
-.../my_addons/my_module/security/{my_group}_record_rules.xml
-    <record model="ir.rule" id="res_partner_base_user_write_access_rule">
-        <field name="name">silog base user write res.partner.access.rule</field>
-        <field name="model_id" ref="base.model_res_partner"/>
-        <field name="domain_force">[my domain]</field>
-        <field name="perm_read" eval="1"/>
-        <field name="perm_create" eval="0"/>
-        <field name="perm_write" eval="0"/>
-        <field name="perm_unlink" eval="0"/>
-        <field name="groups" eval="[(6, 0, [ref('base.group_user')])]"/>
-    </record>
-```
-
-
-### Interaction entre les règles
-- Les règles globales (non spécifiques à un groupe) sont restrictives et ne peuvent pas être contournées.
-- Les règles propres à un groupe permettent d'accorder des autorisations supplémentaires, mais elles sont limitées par celles définies au niveau global.
-- Les règles du premier groupe sont plus restrictives que les règles globales, mais n'importe quel groupe de règles supplémentaire ajoutera plus d'autorisations.
-- **Algorithme détaillé:**
-    1. Les règles globales sont évaluées avec un ET logique entre elles, et avec le résultat des étapes suivantes
-    2. Règles spécifiques au groupe combinées ensemble avec un opérateur logique OU
-    3. Lorsqu'un utilisateur appartient à plusieurs groupes, les résultats de l'étape 2 sont combinés avec un opérateur OU
-    4. Exemple : GLOBAL_RULE_1 AND GLOBAL_RULE_2 AND ( (GROUP_A_RULE_1 OR GROUP_A_RULE_2) OR (GROUP_B_RULE_1 OR GROUP_B_RULE_2) )
-
-
-- Note Importantes:
-    - Si ACL  n'est pas définie pour un modèle, le modèle n'est accessible que par l'utilisateur admin.
-    - Il est préférable d'avoir toujours un accès séparé pour la lecture et un autre accès pour l'écriture.
-    - ACL/RRL are always checked when trying to access a given modèle.
-    - Vous devez être très attentif aux droits d'accès pour les champs  **Many2one** et **One2many**.
-    - Il est possible de contourner la utilisant la méthode **sudo()**
-    ```Python
-        my_object.sudo().write({'field1: 'value'}).
-    ```
-    - Pour les champs calculés, on utilise les attributs **compute_sudo=True**, **related_sudo=True**.
-
-
-
-## Tests unitaires
-
-- est une procédure permettant de vérifier le bon fonctionnement d'une fonctionnalité développée.
-- Le processus est simple:
-    - Écrire une fonction de test qui doit obtenir un résultat défini dans les spécifications.
-    - Écrire le code pour faire réussir le test.
-    - Une fois le test en succès, rajouter un autre test pour obtenir un résultat légèrement différent, en faisant varier les entrées par exemple. Ce nouveau test fera faillir le code principal.
-    - Modifier le code principal pour faire réussir les tests.
-    - Recommencer, en éliminant et refactorisant les éventuelles redondances dans le code des tests.
-
-
-```your_module
-|-- ...
-`-- tests
-    |-- __init__.py
-    |-- test_bar.py
-    `-- test_foo.py
-__init__.py
-from . import test_foo, test_bar
-```
-
-```python
-from openerp.tests.common import SavepointCase
-Class TestPurchase(SavepointCase):
-
-    @classmethod
-    def setUpClass(cls):
-        super(TestPurchase, cls).setUpClass()
-        cls.order = cls.env['purchase.order'].create({
-            'partner_id': cls.supplier1.id,
-            'public_contract_id': cls.contract1.id
-        })
-        ...
-        cls.main_product1 = cls.env.ref('product.product_product_8')
-        ...
-    ...
-    def test_draft_state(self):
-        self.assertEqual(self.order.state, 'draft')
-        ...
-        self.assertFalse(self.order.sc_action_draft_allowed)
-        ...
-        self.assertTrue(self.order.sc_action_to_approve_allowed)
-        ...
-        self.order.action_to_approve()
-        self.assertEqual(self.order.state, 'to approve')
-```
-
-
-
-# Alternative d'installation
-
-
-## Problèmes rencontrés
-- Comment être sûr de toujours travailler avec la dernière version d'Odoo?
-- Comment inclure une correction de bug sans risque et sans en introduire de nouveaux.
-- Comment être sûr d'utiliser la bonne version du module OCA.
-- Ça doit être une autre façon de faire les choses.
-- Odoo est développé autour d'outils puissants, pourquoi ne pas utiliser la force de ces outils pour améliorer notre système écologique.
-
-
-- **ACSOO**: Un ensemble d'utilitaires de ligne de commande pour faciliter le workflow de développement Odoo chez **Acsone**.
-- `L'idée est simple`: rendre Odoo et les modules Odoo (même les modules OCA) installables en utilisant **PIP** comme n'importe quelle autre paquets utilisée.
-- Installation:
-```Shell
-pip install acsoo
-or
-workon {venv}
-pip install acsoo
-```
-- Initialiser un nouveau projet:
-```Shell
-mrbob acsoo:templates/project
-cd {project name}
-git init
-mkvirtualenv {project name} -a .
-```
-
-- pour économiser du temps copier odoo dans `src/odoo` et faire:
-
-```Shell
-pip install --src src --pre -r requirements-dev.txt
-...
-Obtaining odoo from git+ssh://git@github.com/acsone/odoo.git@10.0-gft_master#egg=odoo (from -r requirements-dev.txt (line 5))
-  git clone in ./src/odoo exists with URL https://github.com/odoo/odoo.git
-  The plan is to install the git repository ssh://git@github.com/acsone/odoo.git
-What to do?  (s)witch, (i)gnore, (w)ipe, (b)ackup i
-...
-./freeze.sh
-
-python odoo-bin --db_host=localhost -r odoo -w {password}
-
-addons paths: ['/home/genisoft/.local/share/Odoo/addons/10.0', u'/home/genisoft/genisoft/src/odoo/odoo/addons', u'/home/genisoft/genisoft/src/odoo/addons', '/home/genisoft/.virtualenvs/odoo-genisoft/lib/python2.7/site-packages/odoo/addons', '/home/genisoft/genisoft/odoo/addons']
-```
-
-
-- Pour installer un module OCA:
-```Shell
-export PIP_FIND_LINKS="https://wheelhouse.odoo-community.org/oca"
-pip install odoo{9|10|11}-addon-<name_of_module>
-```
-
-- **GIT-AGGREGATOR**:
-- Permet de faire la consolidation de plusieurs versions (i.e branche/pull requests/Repo) pour construire une version consolidée.
-- Utilise un fichier `**.yml**` pour la configuration:
-
-```YML
-./product_attribute:
-    remotes:
-        oca: https://github.com/OCA/product-attribute.git
-        acsone: git+ssh://git@github.com/acsone/product-attribute.git
-    merges:
-        - oca 8.0
-        - oca refs/pull/105/head
-        - oca refs/pull/106/head
-    target: acsone aggregated_branch_name
-
-./connector-interfaces:
-    remotes:
-        oca:  https://github.com/OCA/connector-interfaces.git
-        acsone:  https://github.com/acsone/connector-interfaces.git
-    merges:
-        - oca 6054de2c4e669f85cec380da90d746061967dc83
-        - acsone 8.0-connector_flow
-        - acsone 80_connector_flow_ir_cron_able-lmi
-        - acsone 8.0_connector_flow_improve_eval_config
-    target: acsone aggregated_branch_name
-    fetch_all:
-        - oca
-```
-
-
-- Pour obtenir la version souhaitée:
-```Shell
-gitaggregate -c gitaggregate.yaml -d src/{repo_name} -p
-```
-
-- Il faut belle est bien avoir un compte github et une copie (Fork) pour tous les repos utilisés dans le projet.
-
-
-
-# DEMO: DEMANDE D'ACHAT
-
-
-- Créer un nouveau module en utilisant mrbob:
-
-```Shell
-~/.virtualenvs/acsoo/bin/mrbob bobtemplates.odoo:addon
-...
---> Addon name (with underscores): purchase_request
-
---> Is it an OCA addon [n]: n
-
---> Summary: Purchase request
-
---> Version [10.0.1.0.0]:
-
---> Copyright holder name: SARL Genisoft
-
---> Copyright year: 2018
-
---> Website: www.example.com
-```
-
-- Ajouter un nouveau model: purchase.request:
-
-```Shell
-~/.virtualenvs/acsoo/bin/mrbob bobtemplates.odoo:model
---> Odoo version (8|9|10) [10]:
-
---> Model name (dotted notation): purchase.request
-
---> Inherit [y]: n
-
---> Form view [y]: y
-
---> Search view [y]: y
-
---> Tree view [y]: y
-
---> Action and menu entry [y]: y
-
---> ACL [y]: y
-
---> Demo data [y]: y
-
---> Copyright holder name: SARL genisoft
-
---> Copyright year: 2018
-```
-
-- Ajouter un nouveau modèle: purchase.request.line.
-- mettre à jour les dépendances du modèle.
-
-
-- Faire un premier teste en installant le module dans une nouvelle instance:
-
-```Shell
-src/odoo/odoo-bin --db_host=localhost -r odoo -w qazedcsdispo --db-filter="ges-" -d ges-test_1 -i purchase_request
-2018-03-11 10:20:01,153 8629 INFO ? odoo: Odoo version 10.0
-2018-03-11 10:20:01,153 8629 INFO ? odoo: addons paths: ['/Users/zakaria/Library/Application Support/Odoo/addons/10.0', u'/Users/zakaria/odoo_genisoft/project/odoo_genisoft/src/odoo/odoo/addons', u'/Users/zakaria/odoo_genisoft/project/odoo_genisoft/src/odoo/addons', '/Users/zakaria/.virtualenvs/odoo-genisoft/lib/python2.7/site-packages/odoo/addons', '/Users/zakaria/odoo_genisoft/project/odoo_genisoft/odoo/addons']
-2018-03-11 10:20:01,153 8629 INFO ? odoo: database: odoo@localhost:default
-2018-03-11 10:20:01,820 8629 INFO ? odoo.service.server: HTTP service (werkzeug) running on 0.0.0.0:8069
-...
-2018-03-11 10:22:33,053 8629 WARNING ges-test_1 odoo.modules.loading: The model purchase.request has no access rules, consider adding one. E.g. access_purchase_request,access_purchase_request,model_purchase_request,,1,0,0,0
-2018-03-11 10:22:33,053 8629 WARNING ges-test_1 odoo.modules.loading: The model purchase.request.line has no access rules, consider adding one. E.g. access_purchase_request_line,access_purchase_request_line,model_purchase_request_line,,1,0,0,0
-```
-
-- Ajouter des views pour le modèle: purchase.request (form, tree, action, menus).
+3- En ajoutant le fichier CSS:
 
 ```XML
-    ...
-    <field name="field_name"
-           attrs="{'readonly': [('field_name_2', '=|!=|&lt;|&gt;', value)],
-                   'invisible': ..., 'required': ...}"/>
-    ...
-    <field name="product_id" domain="[('seller_ids.name', '=', parent.partner_id)]"/>
-    ...
-    <field name="product_uom" options="{'no_open':True,'no_create':True}" string="Unit of Measure" groups="product.group_uom"/>
-    ...
-    <!-- Need an OCA module: web_readonly_bypass -->
-    <field name="supplier_id" options="{'readonly_by_pass': True}"/>
+<template id="assets_report" inherit_id="report.assets_common">
+    <xpath expr="." position="inside">
+      <link href="/silog_payment_report_bordereau/static/src/less/report.less" rel="stylesheet" type="text/less"/>
+    </xpath>
+</template>
 ```
 
 
-- Ajouter des testes unitaires:
-
-```Shell
-~/.virtualenvs/acsoo/bin/mrbob bobtemplates.odoo:test
-
---> Odoo version (8|9|10) [10]:
-
---> Test file name (with underscores): test_purchase_request
-
---> Copyright holder name: SARL Genisoft
-
---> Copyright year: 2018
-
-Generated file structure at /Users/zakaria/odoo_genisoft/project/odoo_genisoft/odoo/addons/purchase_request
-```
-
-- La commande pour le lancer les testes unitaires et la suivante: 
-
-```Shell
-./odoo-bin --db_host=localhost -r odoo -w qazedcsdispo -d {db_name} -i {module_name} --test-enable --stop-after-ini
-
-2018-03-18 08:21:23,891 26591 INFO ges-test_1 odoo.modules.module: odoo.addons.purchase_request.tests.test_purchase_request running tests.
-2018-03-18 08:21:23,891 26591 INFO ges-test_1 odoo.addons.purchase_request.tests.test_purchase_request: test_1 (odoo.addons.purchase_request.tests.test_purchase_request.TestPurchaseRequest)
-2018-03-18 08:21:23,986 26591 INFO ges-test_1 odoo.addons.purchase_request.tests.test_purchase_request: Ran 1 test in 0.095s
-2018-03-18 08:21:23,987 26591 INFO ges-test_1 odoo.addons.purchase_request.tests.test_purchase_request: OK
-2018-03-18 08:21:23,999 26591 INFO ges-test_1 odoo.modules.loading: 35 modules loaded in 1.17s, 62 queries
-```
-
-
-- Ajouter du code métier pour nos deux modèles: purchase.request et purchase.request.line
-- les méthodes **onchange** et **compute** doivent être protégés:
-```Python
-...
-    @api.onchange('my_field')
-    def _onchange_my_field(self):
-        ....
-
-    @api.depends('some_fields')
-    def _compute_my_field(self):
-        ...
-```
-
-
-- Les méthodes utilisées par les bouttons dans l'interface doivent être visible par l'API:
-
-```Python
-...
-    @api.multi
-    def button_draft(self):
-        ...
-...
-```
-
-- Par conséquent: elles doivent être sécurisées d'avantage, la méthodes est la suivante:
-
-```
-...
-    button_draft_allowed = fields.Boolean(
-        compute='_compute_button_draft_allowed',
-        store=True,
-        readonly=True,
-    )
-    ...
-    @api.multi
-    @api.depends('state')
-    def _compute_button_draft_allowed(self):
-        has_group = self.env.user.has_group(
-            'my_module.my_group')
-        for rec in self:
-            rec.button_draft_allowed = rec.state == 'cancel' and has_group
-
-    @api.multi
-    def _check_button_draft_allowed(self):
-        if self.filtered(lambda r: not r.button_draft_allowed):
-            raise AccessError("You don't have right")
-
-    @api.multi
-    def button_draft(self):
-        self._check_button_draft_allowed()
-        self.write({'state': 'draft'})
-```
+### Format de papier de l'état de sortie
 
 ```XML
-...
-        <button name="button_draft"
-                string="Reset"
-                type="object"
-                attrs="{'invisible': [('button_draft_allowed', '=', False)]}"/>
-        ...
-        <field name="button_draft_allowed" invisible="1"/>
-...
-```
-
-- A partir de la version 10.0, Odoo a décidé d'abandonner son moteur de workflow et d'utiliser uniquement des boutons associés aux états.
-- Il y a un module OCA qui essaie de remplacer le moteur, il s'appelle statechart: https://github.com/acsone/scobidoo
-
-
-### La traduction dans Odoo:
-
-- Chaque module fournit ses propres traductions dans un  répertoire i18n, en ayant des fichiers nommés **LANG.po**.
-- **LANG** est le code de paramètres régionaux pour la langue: **fr.po** ou **fr_BE.po**.
-```SHELL
-|- my_module/
-   |- i18n/ 
-      | - idea.pot # Translation Template (exported from Odoo)
-      | - fr.po # French translation
-      | - pt_BR.po # Brazilian Portuguese translation
-      | (...)
-```
-- Syntaxe du fichier:
-```PO
-#. module: purchase_request
-#: model:ir.actions.act_window,name:purchase_request.purchase_request_act_window
-#: model:ir.model,name:purchase_request.model_purchase_request
-#: model:ir.model.fields,field_description:purchase_request.field_purchase_request_line_request_id
-#: model:ir.module.category,name:purchase_request.module_category_purchase_request
-#: model:ir.ui.menu,name:purchase_request.purchase_request_menu
-#: model:ir.ui.view,arch_db:purchase_request.purchase_request_search_view
-#: model:ir.ui.view,arch_db:purchase_request.purchase_request_tree_view
-msgid "Purchase Request"
-msgstr "Purchase Request"
-```
-- Pour mettre à jour les traduction, il suffit de mettre à jour le module en utilisant le flag: **--i18n-overwrite**
-```Shell
-odoo-bin --db_host=localhost -r odoo -w qazedcsdispo --db-filter="ges-" -d ges-test_4 -u purchase_request --i18n-overwrite
-```
-
-
-- La meilleure façon pour créer les fichiers PO, est de le faire via l'interface utilisateur:
-    - **Settings ‣ Translations ‣ Import / Export ‣ Export Translations**
-
-![Inheritance](images/export_po.png)
-
-
-- Odoo automatiquement export les contenus traduisibles suivants:
-    - Au niveau des views, les tags suivant sont automatiquements exportés: **string**, **help**, **sum**, **confirm**, **placeholder**.
-    - Au niveau modéle: 
-        - Les attributs des champs: **string**, **help**.
-        - Pour les champs de type sélection: **selection**.
-        - Le contenu d'un champ peut être traduisible avec l'attribut: **translate=True**.
-        - Les messages d'erreur des contraintes: **_sql_constraints**
-- Lorsqu'il s'agit de situations plus "impératives" en code Python ou en code Javascript, Odoo ne peut pas exporter automatiquement les termes traduisibles, ils doivent donc être marqués explicitement pour l'exportation. Ceci est fait en enveloppant une chaîne littérale dans un appel de fonction.
-```Python
-from odoo import api, fields, models, _
-class PurchaseRequest(models.Model):
-    ...
-    @api.multi
-    def to_approve_allowed_check(self):
-        for rec in self:
-            if not rec.to_approve_allowed:
-                raise UserError(
-                    _("You can't request an approval for a purchase request "
-                      "which is empty. (%s)") % rec.name)
-    ...
-```
-```PO
-#. module: purchase_request
-#: code:addons/purchase_request/models/purchase_request.py:183
-#, python-format
-msgid "You can't request an approval for a purchase request which is empty. (%s)"
-msgstr "You can't request an approval for a purchase request which is empty. (%s)"
-```
-
-
-##  Notifications et messagerie dans Odoo:
-- Odoo propose un mécanisme de communication (Chatter) lié à chaque modèle. Cette communication est établie par le biais d'un système de notification et de messagerie.
-- pour intégration des fonctions de messagerie à un modèle:
-```Python
-class PurchaseRequest(models.Model):
-    _name = 'purchase.request'
-    _inherit = ['mail.thread']
-    _description = 'Purchase Request'
-```
-```XML
-<form>
-    <sheet>
-    ...
-    </sheet>
-    <div class="oe_chatter">
-        <field name="message_follower_ids" widget="mail_followers"/>
-        <field name="message_ids" widget="mail_thread"/>
-    </div>
-</form>
-```
-
-
-- Par défaut:
-    - Lors de la publication d'un message ou d'une note, tous les abonnés du document (enregistrement) recevront une notification.
-    - Tout utilisateur ayant un accès en écriture au document peut faire un post dans le chatter.
-    - Tout utilisateur qui crée ou met à jour le document est automatiquement ajouté en tant que **follower**  à ce document.
-- **mail.thread** offre des fonctions et des paramètres qui aident à changer le comportement par défaut:
-- Pour pouvoir poster un message avec un accès en lecture seulement:
-```Python
-class PurchaseRequest(models.Model):
-    _name = 'purchase.request'
-    _inherit = ['mail.thread']
-    _description = 'Purchase Request'
-    _mail_post_access = 'read'
-```
-- Pour désactiver l'abonnement automatique au document lors de la création ou de la mise à jour d'un document:
-    - **mail_create_nosubscribe**: A la création ou à l'appelle de la méthode `message_post`, n'ajouter pas automatiquement l'utilisateur courant au followers.
-    - **mail_notrack**: L'utilisateur courant n'est pas automatiquement ajouter au followers du document crée ou modifié.
-    - **tracking_disable**: Désactiver toute fonctionalité de notification.
-```Python
-self.env['my.module'].with_context(mail_create_nosubscribe=True, mail_notrack=True, tracking_disable=True).create(vals)
-```
-
-
-- **mail.thread** permet aussi de faire le logging des changements effectués sur un document: Ceci est fait en ajoutant l'attribut **track_visibility** à un champ:
-    - **onchange**: Affiché le changement de ce champ que si ce champ lui même a changé de valeur.
-    - **always**: Devrait toujours être affichée dans le chatter même si ce champ particulier n'a pas changé.
-```python
-class BusinessTrip(models.Model):
-    _name = 'business.trip'
-    _inherit = ['mail.thread']
-    _description = 'Business Trip'
-
-    name = fields.Char(track_visibility='always')
-    partner_id = fields.Many2one('res.partner', 'Responsible',
-                                 track_visibility='onchange')
-    guest_ids = fields.Many2many('res.partner', 'Participants')
-```
-
-
-- **Subtypes**: agissent comme un système de classification pour les notifications, permettant aux abonnés d'un document de personnaliser les notifications qu'ils souhaitent recevoir.
-- Les Subtypes sont créés en tant que données dans votre module:
-```XML
-<record id="mt_state_change" model="mail.message.subtype">
-    <field name="name">Trip confirmed</field>
-    <field name="res_model">business.trip</field>
+<record id="paperformat_frenchcheck" model="report.paperformat">
+    <field name="name">French Bank Check</field>
     <field name="default" eval="True"/>
-    <field name="description">Business Trip confirmed!</field>
+    <field name="format">custom</field>
+    <field name="page_height">80</field>
+    <field name="page_width">175</field>
+    <field name="orientation">Portrait</field>
+    <field name="margin_top">3</field>
+    <field name="margin_bottom">3</field>
+    <field name="margin_left">3</field>
+    <field name="margin_right">3</field>
+    <field name="header_line" eval="False"/>
+    <field name="header_spacing">3</field>
+    <field name="dpi">80</field>
 </record>
 ```
-- Ensuite, nous devons surcharger la fonction **track_subtype ()**. Cette fonction est appelée par le système de suivi pour savoir quel sous-type doit être utilisé en fonction de la modification en cours.
-```Python
-class BusinessTrip(models.Model):
-    _name = 'business.trip'
-    _inherit = ['mail.thread']
-    _description = 'Business Trip'
-
-    name = fields.Char(track_visibility='onchange')
-    partner_id = fields.Many2one('res.partner', 'Responsible',
-                                 track_visibility='onchange')
-    guest_ids = fields.Many2many('res.partner', 'Participants')
-    state = fields.Selection([('draft', 'New'), ('confirmed', 'Confirmed')],
-                             track_visibility='onchange')
-
-    def _track_subtype(self, init_values):
-        # init_values contains the modified fields' values before the changes
-        #
-        # the applied values can be accessed on the record as they are already
-        # in cache
-        self.ensure_one()
-        if 'state' in init_values and self.state == 'confirmed':
-            return 'my_module.mt_state_change'  # Full external id
-        return super(BusinessTrip, self)._track_subtype(init_values)
-```
 
 
-### Abonnement / désabonnement d'un utilisateur aux notifications
+### Action pour impression de l'état de sortie
 
-- Définir les sous-types auxquels l'utilisateur sera abonné:
-
-```Python
-    @api.model
-    def _get_expert_approver_subtypes(self):
-        subtypes = self.env.ref(
-            'silog_purchase_request_workflow.'
-            'mt_pr_submitted_expert_approver',
-            raise_if_not_found=False)
-        subtypes |= self.env.ref('mail.mt_comment')
-        return subtypes
-```
-- Définir la condition pour abonner un utilisateur
-
-```Python
-    @api.multi
-    def _subscribe_expert_approver_user(self):
-        """Subscribe expert approver user to the request with specific subtypes.
-        """
-        subtypes = self._get_expert_approver_subtypes()
-
-        for rec in self:
-            if not rec.expert_approver_user_id:
-                continue
-            rec.message_subscribe_users(
-                user_ids=[rec.expert_approver_user_id.id],
-                subtype_ids=subtypes.ids)
-```
-- Enfin, abonnez l'utilisateur
-
-```Python
-    expert_approver_user_id = fields.Many2one(
-        inverse='_inverse_expert_approver_user_id',
-    )
-    
-    @api.multi
-    def _inverse_expert_approver_user_id(self):
-        """Subscribe the expert approver when creating new request."""
-
-        # First unsubscribe the old expert approvers
-        subtypes = self._get_expert_approver_subtypes()
-        for rec in self:
-            followers = rec.message_follower_ids.filtered(
-                lambda f: f.subtype_ids == subtypes)
-            rec.message_unsubscribe(
-                partner_ids=followers.mapped('partner_id.id'))
-        self.with_context(mail_create_nosubscribe=True).\
-            _subscribe_expert_approver_user()
-```
-
-
-### Envoyer un message de notification
-
-```Python
-...
-    @api.multi
-    def _send_reception_picking_ready_notification(self):
-        """
-        Notify the requester that the reception picking is ready.
-        """
-        self.ensure_one()
-        template = self.env.ref("my_module.my_template", raise_if_not_found=False)
-        ...
-        self.message_post_with_template(
-            template_id=template.id,
-            message_type='notification',
-            partner_ids=[(4, self.requested_by.partner_id.id)])
-        # Or use subtypes
-        self.message_post_with_template(
-            template_id=template.id,
-            message_type='notification',
-            subtype='purchase_request.mt_request_rejected',
-        )
-
-```
 ```XML
-...
-    <record model="mail.template" id="silog_mail_template_purchase_request_stock_reserve_notification">
-        <field name="name">Notification de la réception de la demande</field>
-        <field name="subject">Réception est prête à être transférée</field>
-        <field name="model_id" ref="purchase_request.model_purchase_request"/>
-        <field name="body_html"><![CDATA[
-        <div>
-          <p>Bonjour,</p></br>
-          <p>
-              La réception de la demande ${object.name} est prête à être transférée
-          </p>
-          </br>
-          <p>Bien à vous,</p>
-        </div>
-        ]]></field>
-    </record>
-...
+<report
+    id="account_invoices"
+    model="account.invoice"
+    string="Invoices"
+    report_type="qweb-pdf"
+    name="account.report_invoice"
+    file="account.report_invoice"
+    attachment_use="True"
+    attachment="(object.state in ('open','paid')) and
+        ('INV'+(object.number or '').replace('/','')+'.pdf')"
+/>
 ```
 
-```Python
-    @api.multi
-    def do_transfer(self):
-        ...
-        res = super(StockPicking, self).do_transfer()
-        done_request_pickings = self.filtered(
-            lambda r: r.state == 'done' and r.request_id and
-            not r.silog_purchase_id)
-        for picking in done_request_pickings:
-            if picking.request_id.reception_picking_ids:
-                picking.request_id._send_reception_picking_ready_notification()
+```XML
+<record id="qweb_pdf_export" model="ir.actions.report.xml">
+    <field name="name">Bordereau de liquidation</field>
+    <field name="model">account.payment.line</field>
+    <field name="type">ir.actions.report.xml</field>
+    <field name="report_name">silog_payment_report_bordereau.report_silog_payment_bordereau_document</field>
+    <field name="report_type">qweb-pdf</field>
+    <field name="paperformat_id" ref="report.paperformat_euro"/>
+    <field name="auto" eval="False"/>
+    <field name="download_filename">BordLiquid_${o.gcom_file or o.name}.pdf</field>
+</record>
+```
+- https://github.com/OCA/reporting-engine/tree/9.0/report_custom_filename
 
-        return res
-    ...
+
+### Installation de Wkhtmltopdf
+
+```Shell
+sudo wget https://downloads.wkhtmltopdf.org/0.12/0.12.1/wkhtmltox-0.12.1_linux-trusty-amd64.deb
+sudo dpkg -i wkhtmltox-0.12.1_linux-trusty-amd64.deb
+sudo cp /usr/local/bin/wkhtmltopdf /usr/bin
+sudo cp /usr/local/bin/wkhtmltoimage /usr/bin
 ```
