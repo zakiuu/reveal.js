@@ -1,336 +1,279 @@
-## Odoo en profondeur (Suite)
+# Odoo en profondeur (Suite 3)
 
 
-## Rapport (Etat de sortie)
-
-- Les etat de sortie dans Odoo sont basés sur le moteur de template **Qweb**.
-- Chaque état de sortie est lié à une **action**. Lorsque l'action est appelée, le rapport est imprimé.
-- Chaque état de sortie a un **format papier**. Le format papier est spécifié dans l'action.
+# Les tableaux de bord (Reporting) dans Odoo:
+- Un tableau de bord n'est lié qu'a un seul modéle.
+- Pour contourner cette restriction le modéle du reporting est construit à partir d'une vue base de donées.
 
 
-### 1- Language QWEB.
-
-- C'est un moteur de template XML utilisé principalement pour générer des fragments et des pages HTML.
-- QWEB c'est un langage comme les autres: if, for, variable, 
-
-```XML
-<?xml version="1.0" encoding="UTF-8"?>
-<templates id="template" xml:space="preserve">
-...
-<t t-name="TreeView">
-    <select t-if="toolbar" style="width: 30%"/>
-    <table class="o_treeview_table">
-        <thead>
-            <tr>
-                <th t-foreach="fields_view" t-as="field"
-                    t-if="!field.attrs.modifiers.tree_invisible"
-                    class="treeview-header">
-                    <t t-esc="field_value.attrs.string || fields[field.attrs.name].string" />
-                </th>
-            </tr>
-        </thead>
-        <tbody>
-        </tbody>
-    </table>
-</t>
-...
-</template>
-```
+```Python
+from odoo import api, fields, models, tools
 
 
-- **Boucle For**:
+class PurchaseReport(models.Model):
+    _name = "purchase.report"
+    _description = "Purchases Orders"
+    _auto = False
+    _order = 'date_order desc, price_total desc'
 
-```XML
-...
-<tbody>
-    <tr t-foreach="o.line_ids" t-as="line_ids">
-        <td>
-            <span t-field="line_ids.name"/>
-        </td>
-        ...
-    </tr>
+    date_order = fields.Datetime('Order Date', readonly=True, help="Date on which this document has been created", oldname='date')
+    state = fields.Selection([
+        ('draft', 'Draft RFQ'),
+        ('sent', 'RFQ Sent'),
+        ('to approve', 'To Approve'),
+        ('purchase', 'Purchase Order'),
+        ('done', 'Done'),
+        ('cancel', 'Cancelled')
+        ], 'Order Status', readonly=True)
     ...
-</tbody>
+    
+    @api.model_cr
+    def init(self):
+        tools.drop_view_if_exists(self._cr, 'purchase_report')
+        self._cr.execute("""
+            create view purchase_report as (
+                WITH currency_rate as (%s)
+                select
+                ...
+            )
+        """ % self.env['res.currency']._select_companies_rates())
 ```
 
-- **Condition if:**
+- Actuellement, Odoo prend en charge quatre modes d'affichages:
+    - **Pivot**
+    - **Bar**
+    - **Pie**
+    - **Line**
+
+#### Mesure et dimension
+- **Mesure:** une mesure est un champ qui peut être agrégé. Chaque champ de type entier ou float (sauf le champ id) peut être utilisé comme mesure.
+- Deux modes d'agrégation sont disponibles: `sum` et `avg`.
+
+```Python
+...
+    price_average = fields.Float('Average Price', readonly=True, group_operator="avg")
+...
+```
+- **dimension:** Une dimension est un champ qui peut être groupé. Cela signifie à peu près tous les champs non numériques.
+- Pour mieux comprendre comment Odoo sélectionne si un champ est une dimension ou une mesure dans la vue Graph et Pivot:
+```Javascript
+    prepare_fields: function (fields) {
+        var self = this;
+        this.fields = fields;
+        _.each(fields, function (field, name) {
+            if ((name !== 'id') && (field.store === true)) {
+                if (field.type === 'integer' || field.type === 'float' || field.type === 'monetary') {
+                    self.measures[name] = field;
+                }
+            }
+        });
+        this.measures.__count__ = {string: _t("Count"), type: "integer"};
+    },
+```
+
+```Javascript
+    prepare_fields: function (fields) {
+        var self = this,
+            groupable_types = ['many2one', 'char', 'boolean',
+                               'selection', 'date', 'datetime'];
+        this.fields = fields;
+        _.each(fields, function (field, name) {
+            if ((name !== 'id') && (field.store === true)) {
+                if (field.type === 'integer' || field.type === 'float' || field.type === 'monetary') {
+                    self.measures[name] = field;
+                }
+                if (_.contains(groupable_types, field.type)) {
+                    self.groupable_fields[name] = field;
+                }
+            }
+        });
+        this.measures.__count__ = {string: _t("Count"), type: "integer"};
+    },
+```
+
+- Pour définir la vue Graph et Pivot:
 
 ```XML
-<t t-if="o.line_ids">
-    <h3>Products</h3>
-    <table class="table table-condensed">
-        ...
-    </table>
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record model="ir.ui.view" id="view_purchase_order_pivot">
+        <field name="name">product.month.pivot</field>
+        <field name="model">purchase.report</field>
+        <field name="arch" type="xml">
+            <pivot string="Purchase Orders Statistics" disable_linking="True">
+                <field name="partner_id" type="row"/>
+                <field name="date_order" interval="month" type="col"/>
+                <field name="price_total" type="measure"/>
+                <field name="unit_quantity" type="measure"/>
+                <field name="price_average" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+    <record model="ir.ui.view" id="view_purchase_order_graph">
+        <field name="name">product.month.graph</field>
+        <field name="model">purchase.report</field>
+        <field name="arch" type="xml">
+            <graph string="Purchase Orders Statistics">
+                <field name="partner_id" type="row"/>
+                <field name="date_order" interval="month" type="col"/>
+                <field name="price_average" type="measure"/>
+            </graph>
+        </field>
+    </record>
     ...
-</t>
+</odoo>
 ```
 
-```XML
-<div>
-    <p t-if="user.birthday == today()">Happy bithday!</p>
-    <p t-elif="user.login == 'root'">Welcome master!</p>
-    <p t-else="">Welcome!</p>
-</div>
+- Malheureusement, le Repporting dans Odoo possède quelques points négatifs:
+- Le fait de ne pas utiliser l'ORM pour construire le modèle de rapport, donc les utilisateurs peuvent accéder aux données qu'ils ne devraient pas voir.
+- Dans certains cas, les données agrégées n'ont aucun sens, Exemple: le prix moyen unitaire.
+- Il faut être très prudent avec les devises et les taux de change.
+- Un outils très intéréssant pour construire des tableau de bord avancés: **MIS Builder**
+    - https://github.com/OCA/mis-builder/tree/10.0
+    - https://www.youtube.com/watch?v=0PpxGAf2l-0
+
+
+## Wizard dans Odoo
+- Les assistants sont généralement utilisés pour les butes suivants:
+    * Pour recueillir des informations et permettre aux utilisateurs de faire des choix.
+    * Pour effectuer une action qui ne peut pas être annulée en cliquant sur Retour ou Annuler.
+- Les assistants dans odoo utilisent un **TransiantModel**.
+- Les règles de sécurité ne s'applique pas aux assistants.
+- généralement un assistant est toujours lié à un ou plusieurs modèles principaux.
+
+
+
+
+
+# Déploiement Odoo
+
+- La version qui devrait être utilisée pour le déploiement d'Odoo sera la version 16.04 LTS ou plus récente.
+- La plupart des étapes à venir ont déjà été expliquées lorsque nous avons configuré notre environnement de développement.
+- La plus grande différence: dans un environnement de production, nous nous concentrons plus sur la sécurité des fichiers (en particulier les fichiers de configuration).
+
+
+1- Mettre à jour les packages Ubuntu:
+```Shell
+sudo apt update && sudo apt upgrade
 ```
 
-- **Affichage de données:**
-
-```XML
-...
-<tbody>
-    <tr t-foreach="o.order_line" t-as="line">
-        <td>
-            <span t-field="line.name"/>
-        </td>
-        <td>
-            <span t-esc="', '.join(map(lambda x: x.name, line.taxes_id))"/>
-        </td>
-        ...
-    </tr>
-</tbody>
-...
+2- Créer un utilisateur système `Odoo` qui possédera et exécutera l'application:
+```Shell
+sudo adduser --system --home=/opt/odoo --group odoo
 ```
 
-
-- **Définir des variables:**
-
-```XML
-...
-<t t-set="foo" t-value="2 + 1"/>
-<t t-esc="foo"/>
+3- Installer les packages
+```Shell
+sudo apt install git python-pip postgresql postgresql-server-dev-9.5 python-all-dev python-dev python-setuptools libxml2-dev libxslt1-dev libevent-dev libsasl2-dev libldap2-dev pkg-config libtiff5-dev libjpeg8-dev libjpeg-dev zlib1g-dev libfreetype6-dev liblcms2-dev liblcms2-utils libwebp-dev tcl8.6-dev tk8.6-dev python-tk libyaml-dev fontconfig
 ```
 
-```XML
-...
-<t t-set="o" t-value="o.with_context({'lang':o.partner_id.lang})"/>
-<div class="page">
-...
-```
-
-- **Appel d'autres templates**
-
-```XML
-<!-- other template -->
-<div>
-    This template was called with content:
-    <t t-raw="0"/>
-</div>
-<!-- inside my template -->
-<t t-call="other-template">
-    <em>content</em>
-</t>
-<!-- result -->
-<div>
-    This template was called with content:
-    <em>content</em>
-</div>
-```
-
-- **les attributs**
-
-```XML
-<t t-foreach="[1, 2, 3]" t-as="item">
-    <li t-attf-class="row {{ item_parity }}"><t t-esc="item"/></li>
-</t>
-<!-- result -->
-<li class="row even">1</li>
-<li class="row odd">2</li>
-<li class="row even">3</li>
-```
-
-- Pour plus de detail: https://www.odoo.com/documentation/10.0/reference/qweb.html
-
-
-### 2-Structure d'un état de sortie
-
-```XML
-<template id="report_invoice">
-    <t t-call="report.html_container">
-        <t t-foreach="docs" t-as="o">
-            <t t-call="report.external_layout">
-                <div class="page">
-                    <h2>Report title</h2>
-                    <p>This object's name is <span t-field="o.name"/></p>
-                </div>
-            </t>
-        </t>
-    </t>
-</template>
-```
-
-- Certaines variables spécifiques sont accessibles dans les états de sortie, principalement:
-    1. **docs**: Enregistrements à imprimer.
-    2. **time**: une référence la bibliothèque standard Python
-    3. **user**: l'enregistrement `res.user` utilisateur courrant (i.e celui qui est entrain d'imprimé l'état de sortie).
-
-
-- **Traduction d'un état de sortie**:
-
-```XML
-<!-- Main template -->
-<template id="report_saleorder">
-    <t t-call="report.html_container">
-        <t t-foreach="docs" t-as="doc">
-            <t t-call="sale.report_saleorder_document" t-lang="doc.partner_id.lang"/>
-        </t>
-    </t>
-</template>
-```
-
-```XML
-<!-- Translatable template -->
-<template id="report_saleorder_document">
-    <!-- Re-browse of the record with the partner lang -->
-    <t t-set="doc" t-value="doc.with_context({'lang':doc.partner_id.lang})" />
-    <t t-call="report.external_layout">
-        <div class="page">
-            <div class="oe_structure"/>
-            <div class="row">
-                <div class="col-xs-6">
-                    <strong t-if="doc.partner_shipping_id == doc.partner_invoice_id">Invoice and shipping address:</strong>
-                    <strong t-if="doc.partner_shipping_id != doc.partner_invoice_id">Invoice address:</strong>
-                    <div t-field="doc.partner_invoice_id" t-options="{&quot;no_marker&quot;: True}"/>
-                <...>
-            <div class="oe_structure"/>
-        </div>
-    </t>
-</template>
-```
-
-
-### astuces utiles
-- **Impression de barcodes:**
-
-```XML
-<template id="report_location_barcode">
-    <t t-call="web.html_container">
-        <div t-foreach="[docs[x:x+4] for x in xrange(0, len(docs), 4)]" t-as="page_docs" class="page article page_stock_location_barcodes">
-            <t t-foreach="page_docs" t-as="o">
-                <t t-if="o.barcode"><t t-set="content" t-value="o.barcode"/></t>
-                <t t-if="not o.barcode"><t t-set="content" t-value="o.name"/></t>
-                <img class="barcode" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s&amp;humanreadable=1' % ('Code128', content, 600, 100)"/>
-            </t>
-        </div>
-    </t>
-</template>
-```
-
-- **Widgets**:
-
-```XML
-<!-- Widget pour les addresses -->
-<div t-if="o.dest_address_id">
-    <div t-field="o.dest_address_id"
-        t-options='{"widget": "contact", "fields": ["address", "name", "phone", "fax"], "no_marker": True, "phone_icons": True}'/>
-<div>
-```
-
-```XML
-<!-- Widget pour la devise -->
-<td class="text-right">
-    <span t-field="line.price_subtotal"
-        t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
-</td>
-```
-
-```XML
-<!-- Affichage des images -->
-<div class="col-xs-3">
-    <img t-if="company.logo" t-att-src="'data:image/png;base64,%s' % company.logo" style="max-height: 45px;"/>
-</div>
-```
-
-
-- **Ajout des CSS:** Trois façons différentes de le faire
-
-1- Peut être mis directement dans la template
-
-```XML
-<span style="padding-top: 10px;" t-field="o.name"/>
-```
-
-2- En héritant la template principale des état de sortie:
-
-```XML
-<template id="report_saleorder_style" inherit_id="report.style">
-    <xpath expr=".">
-        <t>
-          .example-css-class {
-            background-color: red;
-          }
-        </t>
-    </xpath>
-</template>
-```
-
-3- En ajoutant le fichier CSS:
-
-```XML
-<template id="assets_report" inherit_id="report.assets_common">
-    <xpath expr="." position="inside">
-      <link href="/silog_payment_report_bordereau/static/src/less/report.less" rel="stylesheet" type="text/less"/>
-    </xpath>
-</template>
-```
-
-
-### Format de papier de l'état de sortie
-
-```XML
-<record id="paperformat_frenchcheck" model="report.paperformat">
-    <field name="name">French Bank Check</field>
-    <field name="default" eval="True"/>
-    <field name="format">custom</field>
-    <field name="page_height">80</field>
-    <field name="page_width">175</field>
-    <field name="orientation">Portrait</field>
-    <field name="margin_top">3</field>
-    <field name="margin_bottom">3</field>
-    <field name="margin_left">3</field>
-    <field name="margin_right">3</field>
-    <field name="header_line" eval="False"/>
-    <field name="header_spacing">3</field>
-    <field name="dpi">80</field>
-</record>
-```
-
-
-### Action pour impression de l'état de sortie
-
-```XML
-<report
-    id="account_invoices"
-    model="account.invoice"
-    string="Invoices"
-    report_type="qweb-pdf"
-    name="account.report_invoice"
-    file="account.report_invoice"
-    attachment_use="True"
-    attachment="(object.state in ('open','paid')) and
-        ('INV'+(object.number or '').replace('/','')+'.pdf')"
-/>
-```
-
-```XML
-<record id="qweb_pdf_export" model="ir.actions.report.xml">
-    <field name="name">Bordereau de liquidation</field>
-    <field name="model">account.payment.line</field>
-    <field name="type">ir.actions.report.xml</field>
-    <field name="report_name">silog_payment_report_bordereau.report_silog_payment_bordereau_document</field>
-    <field name="report_type">qweb-pdf</field>
-    <field name="paperformat_id" ref="report.paperformat_euro"/>
-    <field name="auto" eval="False"/>
-    <field name="download_filename">BordLiquid_${o.gcom_file or o.name}.pdf</field>
-</record>
-```
-- https://github.com/OCA/reporting-engine/tree/9.0/report_custom_filename
-
-
-### Installation de Wkhtmltopdf
+4- Clonner Odoo dans le nouveau répertoire `/opt/odoo`
 
 ```Shell
+sudo git clone https://www.github.com/odoo/odoo --depth 1 --branch 10.0 --single-branch /opt/odoo
+```
+
+5- Créer un environnement virtuel:
+
+```Shell
+cd /opt/odoo/
+mkvirtualenv odoo_genisoft -a .
+```
+
+6- Installer les dépendances:
+
+```Shell
+pip install -r requirements.txt
+```
+
+
+7- Installer `Nodejs` et `Lessc`:
+
+```Shell
+cd
+sudo curl -sL https://deb.nodesource.com/setup_4.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo npm install -g less less-plugin-clean-css
+```
+
+8- Installer La bonne version de la librairie `Wkhtmltopdf`:
+
+```Shell
+cd /tmp
 sudo wget https://downloads.wkhtmltopdf.org/0.12/0.12.1/wkhtmltox-0.12.1_linux-trusty-amd64.deb
 sudo dpkg -i wkhtmltox-0.12.1_linux-trusty-amd64.deb
 sudo cp /usr/local/bin/wkhtmltopdf /usr/bin
 sudo cp /usr/local/bin/wkhtmltoimage /usr/bin
 ```
+
+10- Configuration du serveur Odoo:
+
+```Shell
+cd
+sudo cp /opt/odoo/debian/odoo.conf /etc/odoo-server.conf
+```
+
+```text
+[options]
+admin_passwd = admin
+db_host = False
+db_port = False
+db_user = odoo
+db_password = FALSE
+addons_path = /opt/odoo/addons
+;Uncomment the following line to enable a custom log
+;logfile = /var/log/odoo/odoo-server.log
+xmlrpc_port = 8069
+```
+
+11- Ajouter un service Odoo:
+```Shell
+sudo nano /lib/systemd/system/odoo-server.service
+```
+
+```text
+[Unit]
+Description=Odoo Open Source ERP and CRM
+Requires=postgresql.service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+PermissionsStartOnly=true
+SyslogIdentifier=odoo-server
+User=odoo
+Group=odoo
+ExecStart=/home/genisoft/.virtualenvs/odoo_genisoft/bin/python /opt/odoo/odoo-bin --config=/etc/odoo-server.conf --addons-path=/opt/odoo/addons/
+WorkingDirectory=/opt/odoo/
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target
+```
+
+12- Sécuriser les fichiers:
+```CMD
+sudo chmod 755 /lib/systemd/system/odoo-server.service
+sudo chown root: /lib/systemd/system/odoo-server.service
+
+sudo chown -R odoo: /opt/odoo/
+
+sudo chown odoo:root /var/log/odoo
+
+sudo chown odoo: /etc/odoo-server.conf
+sudo chmod 640 /etc/odoo-server.conf
+```
+
+13- Activer le service Odoo:
+```CMD
+sudo systemctl enable odoo-server
+```
+
+
+# Fin
+
+- Apprendre le Git et les platforms de collaboration tel que: Gitlab, github, bitbucket.
+- Apprendre les nouvelles technologies au tour du Devops: CI et CD (Continuous Integration et Continuous Deployment).
+- Apprendre Python en d'hors d'Odoo: Flask, Django, PIPY, ...
+- Apprendre Postgresql.
+- Créer des comptes sur twitter, github, être un membre OCA (si possible).
